@@ -5,8 +5,8 @@ import ec.simple.SimpleEvolutionState;
 import java.util.ArrayList;
 
 public class MyEvolutionState extends SimpleEvolutionState{
-    public double PMCPU;
-    public double PMMEM;
+//    public double PMCPU;
+//    public double PMMEM;
     public double PMENERGY;
 
     // A list of containers
@@ -14,7 +14,7 @@ public class MyEvolutionState extends SimpleEvolutionState{
 
     // A list of candidate VMs, each vm has an array which includes its CPU and Mem capacity
     private ArrayList<Double[]> vmTypeList = new ArrayList<>();
-
+    private ArrayList<Double[]> pmTypeList = new ArrayList<>();
     // An array of OS probability
     private ArrayList<Double> OSPro = new ArrayList<>();
 
@@ -64,8 +64,10 @@ public class MyEvolutionState extends SimpleEvolutionState{
     public double normalizedVmActualCpuUsed;
     public double normalizedVmActualMemUsed;
 
+    public double arrivalTime;
 
     public MyEvolutionState(){
+
         super();
     }
 

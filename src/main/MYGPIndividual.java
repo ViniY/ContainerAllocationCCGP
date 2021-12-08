@@ -29,6 +29,19 @@ public class MYGPIndividual extends GPIndividual {
             state.output.println(this.trees[x].child.makeCTree(true,
                     this.trees[x].printTerminalsAsVariablesInC, this.trees[x].printTwoArgumentNonterminalsAsOperatorsInC), log);
 
+            // graph representation
+//            System.out.println("Tree " + x + ":" + log);
+//            System.out.println("\n" + log);
+//            System.out.println(this.trees[x].child.makeGraphvizTree());
+//            // lisp tree
+//            System.out.println("lisp style: " + log);
+//            System.out.println(this.trees[x].child.printRootedTreeForHumans(state, log, 0, 0));
+//            System.out.println("\n" + log);
+////            // c tree
+//            state.output.println("c style: ",  log);
+//            state.output.println(this.trees[x].child.makeCTree(true,
+//                    this.trees[x].printTerminalsAsVariablesInC, this.trees[x].printTwoArgumentNonterminalsAsOperatorsInC), log);
+
         } // end for
     } // end printTrees
 }

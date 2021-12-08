@@ -27,7 +27,14 @@ public class ReadConfigures {
             while((nextRecord = csvReader.readNext()) != null){
                  Double[] record = new Double[nextRecord.length];
                  for(int i = 0; i < nextRecord.length; ++i){
-                    record[i] = Double.parseDouble(nextRecord[i]);
+                     record[i] = Double.parseDouble(nextRecord[i]);
+//                     try{
+//                         record[i] = Double.parseDouble(nextRecord[i]);
+//                     }
+//                     catch (Exception e){
+//                         System.out.println(nextRecord[i]);
+//                     }
+
                 }
                 data.add(record);
             }
@@ -58,8 +65,7 @@ public class ReadConfigures {
             // each testCase will be store in an arrayList
             ArrayList<Double[]> data;
 
-
-            String filePath = folderPath + "testCase" + (i + start) + "/" + item + ".csv";
+            String filePath = folderPath + "testCase" + (i + start) + "\\" + item + ".csv";
             // read one test case
             data = readTestCase(filePath);
 

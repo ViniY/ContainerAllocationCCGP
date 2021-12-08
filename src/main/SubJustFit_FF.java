@@ -13,6 +13,7 @@ import java.util.HashMap;
  * 3. First-Fit for VM allocation
  */
 public class SubJustFit_FF {
+    private final ArrayList<ArrayList> initPmType;
     private double pmCpu;
     private double pmMem;
     private double pmMaxEnergy;
@@ -28,13 +29,14 @@ public class SubJustFit_FF {
     private ArrayList<ArrayList> initOs;
     private ArrayList<ArrayList> initContainer;
     private ArrayList<Double[]> vmTypeList;
+    private ArrayList<Double[]> pmTypeList;
+
 
 
     private ArrayList<ArrayList<Double[]>> inputX;
 
     public SubJustFit_FF(
-            double pmCpu,
-            double pmMem,
+
             double pmMaxEnergy,
             double k,
             double vmCpuOverheadRate,
@@ -44,10 +46,11 @@ public class SubJustFit_FF {
             ArrayList<ArrayList> initContainer,
             ArrayList<ArrayList> initOs,
             ArrayList<ArrayList> initPm,
+            ArrayList<ArrayList> initPmType,
+            ArrayList<Double[]> pmTypeList,
             ArrayList<Double[]> vmTypeList
     ){
-        this.pmCpu = pmCpu;
-        this.pmMem = pmMem;
+        this.pmTypeList = pmTypeList;
         this.pmMaxEnergy = pmMaxEnergy;
         this.k = k;
         this.vmCpuOverheadRate = vmCpuOverheadRate;
@@ -58,6 +61,7 @@ public class SubJustFit_FF {
         this.initPm = initPm;
         this.inputX = inputX;
         this.vmTypeList = vmTypeList;
+        this.initPmType = initPmType;
     }
 
 
@@ -86,6 +90,7 @@ public class SubJustFit_FF {
                 initVm,
                 initContainer,
                 initOs,
+                initPmType,
                 pmList,
                 pmStatusList,
                 vmList,
@@ -111,8 +116,12 @@ public class SubJustFit_FF {
                 vmIndexTypeMapping.put(vmList.size() - 1, newVmIndex);
 //                System.out.println(vmList.size());
                 if(!firstFit(newVmIndex, container, pmList, pmStatusList, vmList, VMPMMapping)){
-                    Double[] newPM = new Double[]{pmCpu, pmMem};
-                    Double[] newPmStatus = new Double[]{pmCpu, pmMem};
+                    Double[] newPM = pmCreation(pmTypeList,vmTypeList.get(newVmIndex)[0] * vmCpuOverheadRate + container[0],vmMemOverhead + container[1]);
+//                    Double[] newPM = new Double[]{pmCpu, pmMem};
+                    double type = newPM[2];
+
+                    Double[] newPmStatus = new Double[]{pmCpu, pmMem,type};
+
                     newPM[0] -= (vmTypeList.get(newVmIndex)[0] * vmCpuOverheadRate + container[0]);
                     newPM[1] -= (vmMemOverhead + container[1]);
                     newPmStatus[0] -= vmTypeList.get(newVmIndex)[0];
@@ -140,12 +149,14 @@ public class SubJustFit_FF {
         return energyAll;
     }
 
+
     private void initializeDataCenter(
             int testCase,
             ArrayList<ArrayList> initPm,
             ArrayList<ArrayList> initVm,
             ArrayList<ArrayList> initContainer,
             ArrayList<ArrayList> initOs,
+            ArrayList<ArrayList> initPmType,
             ArrayList<Double[]> pmList,
             ArrayList<Double[]> pmStatusList,
             ArrayList<Double[]> vmList,
@@ -157,27 +168,24 @@ public class SubJustFit_FF {
         ArrayList<Double[]> initVmList = initVm.get(testCase);
         ArrayList<Double[]> containerList = initContainer.get(testCase);
         ArrayList<Double[]> osList = initOs.get(testCase);
+        ArrayList<Double[]> initPmTypeList = initPmType.get(testCase);
 
 
         int globalVmCounter = 0;
         // for each PM, we have an array of VM: vms[]
-        for(Double[] vms:initPmList){
+        for(int i =0; i < initPmTypeList.size(); ++i) {
+            int typePM = (initPmTypeList.get(i)[0]).intValue();
+            Double[] vms = initPmList.get(i);
+            double pmCPU = pmTypeList.get(typePM)[0];
+            double pmMem = pmTypeList.get(typePM)[1];
+            pmStatusList.add(new Double[]{pmCPU,pmMem,(Double)(typePM*1.0)});
+            pmList.add(new Double[]{pmCPU,pmMem,(Double)(typePM*1.0)});
 
-            // Create a new PM
-            pmStatusList.add(new Double[]{
-                    pmCpu,
-                    pmMem });
-
-            pmList.add(new Double[]{
-                    pmCpu,
-                    pmMem
-            });
 
             // for this each VM
-            for(int vmCounter = 0; vmCounter < vms.length; ++vmCounter){
-
+            for (int vmCounter = 0; vmCounter <vms.length; ++vmCounter ){
                 // Get the type of this VM
-                int vmType = vms[vmCounter].intValue() - 1;
+                int vmType = vms[vmCounter].intValue() ;
 
                 // Get the OS type
                 Double[] os = osList.get(vmCounter + globalVmCounter);
@@ -199,9 +207,11 @@ public class SubJustFit_FF {
                 int pmIndex = pmStatusList.size() - 1;
 
                 // update the pm left resources
+//                double typePM = pmStatusList.get(i)[2];
                 pmStatusList.set(pmIndex, new Double[]{
                         pmStatusList.get(pmIndex)[0] - vmTypeList.get(vmType)[0],
-                        pmStatusList.get(pmIndex)[1] - vmTypeList.get(vmType)[1]
+                        pmStatusList.get(pmIndex)[1] - vmTypeList.get(vmType)[1],
+                        typePM*1.0
                 });
 
 
@@ -209,13 +219,15 @@ public class SubJustFit_FF {
                 // We update the actual usage of PM's resources
                 pmList.set(pmIndex, new Double[]{
                         pmList.get(pmIndex)[0] - vmTypeList.get(vmType)[0] * vmCpuOverheadRate,
-                        pmList.get(pmIndex)[1] - vmMemOverhead
+                        pmList.get(pmIndex)[1] - vmMemOverhead,
+                        typePM*1.0
+
                 });
 
                 // Map the VM to the PM
                 VMPMMapping.put(vmCounter + globalVmCounter, pmIndex);
                 // for each container
-                for(int conContainer = containers[0].intValue() - 1;
+                for(int conContainer = containers[0].intValue() ;
                     conContainer < containers[containers.length - 1].intValue();
                     ++conContainer){
 
@@ -245,7 +257,9 @@ public class SubJustFit_FF {
                     // update the pm
                     pmList.set(pmIndex, new Double[]{
                             pmCpuMem[0] - cpuMem[0],
-                            pmCpuMem[1] - cpuMem[1]
+                            pmCpuMem[1] - cpuMem[1],
+                            typePM*1.0
+
                     });
 
 
@@ -357,13 +371,52 @@ public class SubJustFit_FF {
         }
         return allocated;
     }
+    // For PM creation createpm
+    private Double[] pmCreation(ArrayList<Double[]> pmTypeList, double vmCpu, double vmMem) {
+        int chosedType = -1;
+        double bestFitValue = 0;
+        double bestcurrentUtil_CPU =0;
+        double bestcurrentUtil_Mem = 0;
+        double requireCPU = vmCpu;
+        double requireMem = vmMem;
 
+        for (int i = 0; i < pmTypeList.size(); i++) {
+            if(requireCPU < pmTypeList.get(i)[0] && requireMem < pmTypeList.get(i)[1]) {
+                double currentUtil_CPU = (pmTypeList.get(i)[0] -requireCPU ) / pmTypeList.get(i)[0];
+                double currentUtil_Mem = (pmTypeList.get(i)[1] - requireMem) / pmTypeList.get(i)[1];
+                double fitValue =  bestcurrentUtil_CPU * bestcurrentUtil_Mem;
+                if (bestcurrentUtil_CPU < currentUtil_CPU) {
+                    chosedType = i;
+                    bestcurrentUtil_CPU = currentUtil_CPU;
+//                    bestcurrentUtil_Mem = currentUtil_Mem;
+//                    bestFitValue = fitValue;
+                }
+//                else if (fitValue > bestFitValue){// do not have both requirements better than others but together is better
+//                    bestcurrentUtil_Mem  = currentUtil_Mem;
+//                    bestcurrentUtil_CPU = currentUtil_CPU;
+//                    bestFitValue = fitValue;
+//                    chosedType = i;
+//                }
+                else{//the current type is worse
+                    continue;
+                }
+            }
+
+        }
+        if (chosedType <0 || chosedType>pmTypeList.size()) chosedType =0;
+        Double newPM[] = new Double[]{pmTypeList.get(chosedType)[0], pmTypeList.get(chosedType)[1], chosedType*1.0};
+        return newPM;
+    }
 
 
     private double calEnergy(ArrayList<Double[]> pmList){
         double energy = 0;
+
         for(Double[] pm:pmList){
-            energy += k * pmMaxEnergy + (1 - k) * pm[0] / pmCpu;
+            double pmCPU = pmTypeList.get(pm[2].intValue())[0];
+            System.out.println(pmCPU);
+            energy += k * pmMaxEnergy *pmCPU + (1 - k) * pm[0] / pmCPU ;
+            System.out.println(energy);
         }
         return energy;
     }
