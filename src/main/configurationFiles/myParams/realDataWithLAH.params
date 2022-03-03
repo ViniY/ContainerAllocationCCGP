@@ -72,7 +72,7 @@ eval.num-current = 0
 
 
 # We have nine functions in the function set. They are:
-gp.fs.0.size = 8
+gp.fs.0.size = 9
 gp.fs.0.func.0 = functions.Add
 gp.fs.0.func.0.nc = nc2
 gp.fs.0.func.1 = functions.Mul
@@ -89,15 +89,15 @@ gp.fs.0.func.6 = functions.LeftVmCPU
 gp.fs.0.func.6.nc = nc0
 gp.fs.0.func.7 = functions.LeftVmMem
 gp.fs.0.func.7.nc = nc0
-#gp.fs.0.func.8 = functions.VMCPUOverhead
-#gp.fs.0.func.8.nc = nc0
-#gp.fs.0.func.9 = functions.VMMEMOverhead
-#gp.fs.0.func. 9.nc = nc0
+gp.fs.0.func.8 = functions.cpuPredicted
+gp.fs.0.func.8.nc = nc0
+#gp.fs.0.func.9 = functions.memPredicted
+#gp.fs.0.func.9.nc = nc0
 
 
 
 
-gp.fs.1.size = 9
+gp.fs.1.size = 10
 gp.fs.1.func.0 = functions.Add
 gp.fs.1.func.0.nc = nc2
 gp.fs.1.func.1 = functions.Mul
@@ -116,8 +116,11 @@ gp.fs.1.func.7 = functions.PmMem
 gp.fs.1.func.7.nc = nc0
 gp.fs.1.func.8 = functions.PmCoreNo
 gp.fs.1.func.8.nc = nc0
-#gp.fs.1.func.10 = functions.lookeAhead
-#gp.fs.1.func.10.nc = nc0
+gp.fs.0.func.9 = functions.cpuPredicted
+gp.fs.0.func.9.nc = nc0
+#gp.fs.0.func.10 = functions.memPredicted
+#gp.fs.0.func.10.nc = nc0
+
 
 # two sub-populations
 pop.subpops = 2

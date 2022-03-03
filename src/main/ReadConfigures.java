@@ -65,10 +65,10 @@ public class ReadConfigures {
             // each testCase will be store in an arrayList
             ArrayList<Double[]> data;
 
-            String filePath = folderPath + "testCase" + (i + start) + "\\" + item + ".csv";
+//            String filePath = folderPath + "testCase" + (i + start) + "\\" + item + ".csv";
+            String filePath = folderPath + "testCase" + (i + start) + "/" + item + ".csv";
             // read one test case
             data = readTestCase(filePath);
-
 
             testCase.add(data);
         }

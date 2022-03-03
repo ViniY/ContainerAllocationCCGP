@@ -1,11 +1,11 @@
 package main;
 
 import ec.Evolve;
-
 public class Main {
+
     public static void main(String[] args){
         String pathToFiles = "./";
-        int numberOfRuns = 1;
+        int numberOfRuns = Integer.valueOf(args[1]);
         String param = args[0];
         String seed = args[1];
         System.out.println(param);
@@ -21,6 +21,12 @@ public class Main {
                 "-p", ("jobs=" + numberOfRuns),
                 "-p", ("seed.0=" + seed),
         };
+        long startTime = System.currentTimeMillis();
         Evolve.main(runConfig);
+        long endTime = System.currentTimeMillis();
+        System.out.println("============================================================");
+        System.out.println("Total Execution Time : " + (endTime - startTime)/1000);
+        System.out.println("************************************************************");
+
     }
 }

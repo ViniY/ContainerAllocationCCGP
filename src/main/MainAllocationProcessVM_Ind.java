@@ -1,13 +1,9 @@
 package main;
-import com.opencsv.CSVReader;
 import ec.EvolutionState;
 import ec.Individual;
 import ec.gp.ADFStack;
 import ec.gp.GPIndividual;
-import java.io.IOException;
-import java.io.Reader;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -20,7 +16,7 @@ import java.util.HashMap;
  *  The newly created VMs will be allocated to desirable PM, these PM can be selected from already occupied PMs or
  *  we rent new PM from the PM type list.
  * **/
-public class MainAllocationProcessVM {
+public class MainAllocationProcessVM_Ind {
     public double maxCPU = 211200; // Here we use the maximum value for both cpu and mem for normalization
     public double maxMem = 4096000;
 //    public final double PMENERGY;
@@ -81,6 +77,8 @@ public class MainAllocationProcessVM {
 
     public boolean newVmFlag = false;
 
+    private final double k;//overhead factror
+
     private ContainerAllocationProblem containerAllocationProblem;
 
     private double energyConsumption;
@@ -92,15 +90,17 @@ public class MainAllocationProcessVM {
 
 
     // Constructor
-    public MainAllocationProcessVM(
+    public MainAllocationProcessVM_Ind(
                                     ContainerAllocationProblem containerAllocationProblem,
                                     EvolutionState state,
                                     double vmCpuOverheadRate,
-                                    double vmMemOverhead)
+                                    double vmMemOverhead,
+                                    double k)
     {
         this.containerAllocationProblem = containerAllocationProblem; //from here we can access the VM types and PM types
         this.vmCpuOverheadRate = vmCpuOverheadRate;
         this.vmMemOverhead = vmMemOverhead;
+        this.k = k;
         this.energyConsumption =0.0;
         this.currentEnergyUnitTime = 0.0;
 
@@ -108,7 +108,156 @@ public class MainAllocationProcessVM {
         MyEvolutionState myEvolutionState = (MyEvolutionState) state;
     }
 
+    private void initializeDataCenter(int testCase,
+                                      ArrayList<Double[]> pmResourceList,
+                                      ArrayList<Double[]> pmActualUsageList,
+                                      ArrayList<Double[]> vmResourceList,
+                                      ArrayList<Double[]> vmTypeList,
+                                      ArrayList<Double[]> pmTypeList,
+                                      ArrayList<ArrayList> initPm,
+                                      ArrayList<ArrayList> initVm,
+                                      ArrayList<ArrayList> initContainer,
+                                      ArrayList<ArrayList> initOs,
+                                      ArrayList<ArrayList> initPmType,
+                                      HashMap<Integer, Integer> VMPMMapping,
+                                      HashMap<Integer, Integer> vmIndexTypeMapping){
+        //TODO change
+//        testCase = 0;
+        this.currentEnergyUnitTime = 0.0;
+        this.energyConsumption = 0.0;
+        ArrayList<Double[]> initPmList = initPm.get(testCase);
+        ArrayList<Double[]> initVmList = initVm.get(testCase);
+        ArrayList<Double[]> containerList = initContainer.get(testCase);
+        ArrayList<Double[]> osList = initOs.get(testCase);
+        ArrayList<Double[]> initPmTypeList = initPmType.get(testCase);
 
+        int globalVmCounter = 0;
+        for(int i =0; i < initPmTypeList.size(); ++i){
+            int typePM =(initPmTypeList.get(i)[0]).intValue();
+            Double[] vms = initPmList.get(i);
+            double pmCPU = pmTypeList.get(typePM)[0];
+            double pmMem = pmTypeList.get(typePM)[1];
+            double pmIdlePow = pmTypeList.get(typePM)[2];
+            double pmMaxPow = pmTypeList.get(typePM)[3];
+            double pmCoreNum = pmTypeList.get(typePM)[4];
+            // Add the PM to resource List at the beginning stage
+            // The order of elements in the list is CPU, Memory and the type of this PM
+            pmResourceList.add(new Double[]{pmCPU,pmMem, pmIdlePow, pmMaxPow, pmCoreNum, pmCPU});
+            pmActualUsageList.add(new Double[]{pmCPU,pmMem, pmIdlePow, pmMaxPow, pmCoreNum, pmCPU});
+            // for this vm
+            for (int vmCounter = 0; vmCounter <vms.length; ++vmCounter ){
+                // Get the type of this VM
+                int vmType = vms[vmCounter].intValue() ;
+
+                // Get the OS type
+                Double[] os = osList.get(vmCounter + globalVmCounter);
+
+                // Create this VM
+                vmResourceList.add(new Double[]{
+                        vmTypeList.get(vmType)[0] - vmTypeList.get(vmType)[0] * vmCpuOverheadRate,
+                        vmTypeList.get(vmType)[1] - vmMemOverhead,
+                        new Double(os[0]),
+                        vmTypeList.get(vmType)[2] // num of core required for this vm
+                });
+                // get the containers allocated on this VM
+                Double[] containers = initVmList.get(vmCounter + globalVmCounter);
+
+                // Allocate the VM to this PM,
+                // Allocation includes two part, first, pmResourceList indicates the left resource of PM (subtract entire VMs' size)
+                // pmIndex denotes the last PM. pmIndex should be at least 0.
+                int pmIndex = pmResourceList.size() - 1;
+
+                // update the pm left resources
+                pmResourceList.set(pmIndex, new Double[]{
+                        pmResourceList.get(pmIndex)[0] - vmTypeList.get(vmType)[0],
+                        pmResourceList.get(pmIndex)[1] - vmTypeList.get(vmType)[1],
+                        pmResourceList.get(pmIndex)[2],
+                        pmResourceList.get(pmIndex)[3],
+                        pmResourceList.get(pmIndex)[4],
+                        pmResourceList.get(pmIndex)[5]
+
+                });
+                // update the total cpu usage and total usage
+
+                // The second part of allocation,
+                // We update the actual usage of PM's resources
+                pmActualUsageList.set(pmIndex, new Double[]{
+                        pmActualUsageList.get(pmIndex)[0] - vmTypeList.get(vmType)[0] * vmCpuOverheadRate,
+                        pmActualUsageList.get(pmIndex)[1] - vmMemOverhead,
+                        pmActualUsageList.get(pmIndex)[2],
+                        pmActualUsageList.get(pmIndex)[3],
+                        pmActualUsageList.get(pmIndex)[4],
+                        pmActualUsageList.get(pmIndex)[5]
+
+                });
+                // update the actual usage
+
+                // Map the VM to the PM
+                VMPMMapping.put(vmCounter + globalVmCounter, pmIndex);
+
+                // for each container
+                for(int conContainer = containers[0].intValue();
+                    conContainer < containers[containers.length - 1].intValue();
+                    ++conContainer){
+
+                    // Get the container's cpu and memory
+                    Double[] cpuMem = containerList.get(conContainer);
+
+                    //Create this container
+                    // get the left resources of this VM
+                    int vmIndex = vmResourceList.size() - 1;
+                    Double[] vmCpuMem = vmResourceList.get(vmIndex);
+
+                    // update the vm
+                    vmResourceList.set(vmIndex, new Double[] {
+                            vmCpuMem[0] - cpuMem[0],
+                            vmCpuMem[1] - cpuMem[1],
+                            new Double(os[0]),
+                            vmCpuMem[3] // num of core required by this vm
+                    });
+                    // Whenever we create a new VM, map its index in the VMResourceList to its type for future purpose
+                    for (int j = 0; j < vmResourceList.size(); j++) {
+                        vmIndexTypeMapping.put(j, vmResourceList.get(j)[2].intValue());
+                    }
+//                    vmIndexTypeMapping.put(vmResourceList.size() - 1, vmType);
+                    // Add the Actual usage to the PM
+                    // Here, we must consider the overhead
+                    Double[] pmCpuMem = pmActualUsageList.get(pmIndex);
+
+                    // update the pm
+                    pmActualUsageList.set(pmIndex, new Double[]{
+                            pmCpuMem[0] - cpuMem[0],
+                            pmCpuMem[1] - cpuMem[1],
+                            pmCpuMem[2],
+                            pmCpuMem[3],
+                            pmCpuMem[4],
+                            pmCpuMem[5]
+
+                    });
+                    // update the total usage
+
+
+//                    vm.addContainer(container);
+                } // Finish allocate containers to VMs
+            } // End  of each VM
+            // we must update the globalVmCounter
+            globalVmCounter += vms.length;
+
+        }// End  of each PM
+
+
+        //Update the unit time energy consumption at time zero
+        double unitPowerConsumption = 0.0;
+        for(int i =0; i < pmResourceList.size(); i++){
+            Double idlePow = pmResourceList.get(i)[2];
+            Double maxPow = pmResourceList.get(i)[3];
+            unitPowerConsumption += idlePow;
+            double utilization = 1 - (pmActualUsageList.get(i)[0] /pmResourceList.get(i)[5]);
+            if (utilization < 0) System.out.println("Wrong utlization at initial stage ");
+            unitPowerConsumption += (maxPow - idlePow) * (2*utilization - Math.pow(utilization, 1.4));
+        }
+        this.currentEnergyUnitTime = unitPowerConsumption;
+    }
 
     public ArrayList<Double> evaluate(
                                         DoubleData input,
@@ -128,74 +277,63 @@ public class MainAllocationProcessVM {
 
         MyEvolutionState myEvolutionState = (MyEvolutionState) state;
         // testCaseNum equals the current generation
-
         int testCase = state.generation;
         // initialize the resource lists
         ArrayList<Double> resultList = new ArrayList<>();
         ArrayList<Double> comparedResultList = new ArrayList<>();
+
             ArrayList<Double[]> pmResourceList = new ArrayList<>();
             ArrayList<Double[]> pmActualUsageList = new ArrayList<>();
             ArrayList<Double[]> vmResourceList = new ArrayList<>();
             HashMap<Integer, Integer> VMPMMapping = new HashMap<>();
             HashMap<Integer, Integer> vmIndexTypeMapping = new HashMap<>();
 
-        //using a universal initializer
-        initializationDataCenterForAll initializing = new initializationDataCenterForAll(
-                testCase,
-                pmResourceList,
-                pmActualUsageList,
-                vmResourceList,
-                vmTypeList,
-                pmTypeList,
-                initPm,
-                initVm,
-                initContainer,
-                initOs,
-                initPmType,
-                VMPMMapping,
-                vmIndexTypeMapping);
-        this.currentEnergyUnitTime = initializing.getUnitPower();
-        vmResourceList = (ArrayList<Double[]>) initializing.getVmResourceList().clone();
-        pmResourceList = (ArrayList<Double[]>) initializing.getPmResourceLsit().clone();
-        pmActualUsageList = (ArrayList<Double[]>) initializing.getPmActualUsageList().clone();
-        vmIndexTypeMapping = (HashMap<Integer, Integer>) initializing.getVmIndexTypeMapping().clone();
-        VMPMMapping = (HashMap<Integer, Integer>) initializing.getVMPMMapping().clone();
-        vmResourceList.clear();
-        pmResourceList.clear();
-        pmActualUsageList.clear();
-        vmIndexTypeMapping.clear();
-        VMPMMapping.clear();
-        this.currentEnergyUnitTime = 0.0;
-//        System.out.println("After initialization in vm process the power is " + this.currentEnergyUnitTime);
+            // Initialize data center
+            initializeDataCenter(testCase,
+                    pmResourceList,
+                    pmActualUsageList,
+                    vmResourceList,
+                    vmTypeList,
+                    pmTypeList,
+                    initPm,
+                    initVm,
+                    initContainer,
+                    initOs,
+                    initPmType,
+                    VMPMMapping,
+                    vmIndexTypeMapping);
 
-
-
+            // No data center initialization
+//                Double Energy = 0.0;
             // Get all the containers
-        ArrayList<Double[]> containers = inputX.get(testCase);
-        boolean firstContainer = true; // we dont want to start the calculation of power from the first containers coming
-        int containerCounter = 0;
-        // Start simulation
-//        int forloopCounter = 0;
-        for (Double[] container:containers) {
-//                System.out.println(forloopCounter++);
+//            ArrayList<Double[]> containers = inputX.get(testCase);
+            ArrayList<Double[]> containers = inputX.get(0);
+        // recording the first timestamp
 
-            containerCpu = container[0];
-            containerMem = container[1];
-            containerOs = container[2].intValue();
+        this.currentTimestamp = containers.get(0)[3];
 
-            // update myEvolutionState
-            myEvolutionState.containerCpu = containerCpu;
-            myEvolutionState.containerMem = containerMem;
-            myEvolutionState.containerOs = containerOs;
+            // Start simulation
+            for (Double[] container:containers) {
 
-            if (firstContainer){
-                currentTimestamp = container[3];
-                firstContainer = false;
-            }
-            if ((this.currentTimestamp - container[3])!=0){
-                boolean updatingEnergy = energyUpdate(container[3], currentTimestamp);
-                this.currentTimestamp = container[3];
-            }
+                containerCpu = container[0];
+                containerMem = container[1];
+                containerOs = container[2].intValue();
+
+                // update myEvolutionState
+                myEvolutionState.containerCpu = containerCpu;
+                myEvolutionState.containerMem = containerMem;
+                myEvolutionState.containerOs = containerOs;
+
+//                if (firstContainer){
+//                    currentTimestamp = container[3];
+//                    firstContainer = false;
+//                }
+                // if the timestamp changes we need to update the current power that consumed
+                if (this.currentTimestamp - container[3]!=0){
+                    boolean updatingEnergy = energyUpdate(container[3], currentTimestamp);
+                    // update the timestamp
+                    this.currentTimestamp = container[3];
+                }
 
                 Integer chosenVM;
                 Integer currentVmNum = vmResourceList.size();
@@ -351,6 +489,25 @@ public class MainAllocationProcessVM {
 
                 } // End of creating a new VM
 
+
+                // After each allocation of container, we evaluate the energy in the data-center
+                // And add up the energy consumption to calculate the area under the curve
+//                double increment = energyCalculation(pmActualUsageList);
+//                Energy += increment;
+//                pmFit += pmUtilRemain(pmActualUsageList, pmResourceList);
+//                System.out.println(pmFit);
+
+//            } // End of one testCase
+//                ind.printIndividualForHumans(state, 0);
+            // calculate the average increase of allocating a container for a taskCase,
+            // We want to minimize this value
+//            comparedResultList.add(Energy);
+//                System.out.println("energy - sub = " + (Energy - benchmark.get(testCase)));
+//            resultList.add(Energy / containers.size());
+//                resultList.add(Energy);
+//                resultList.add(pmFit);
+//                resultList.add(energyCalculation(pmActualUsageList));
+
         } // End of all test cases
 
 //        Double pmFit = pmRemain(pmResourceList);
@@ -402,7 +559,6 @@ public class MainAllocationProcessVM {
             double pmCpuRemain = pm[0];
             double pmMemRemain = pm[1];
             double pmCore = pm[4];
-
             double pmActualCpuUsed = 0;
             double pmActualMemUsed = 0;
             int pmNum = pmResourceList.size();
@@ -539,6 +695,7 @@ public class MainAllocationProcessVM {
         myEvolutionState.normalizedVmActualCpuUsed = normalizedVmActualCpuUsed;
         myEvolutionState.normalizedPmActualMemUsed = normalizedPmActualMemUsed;
         myEvolutionState.coreNumber = pmCore;
+
         // Evaluate the GP rule
         ((GPIndividual) ind).trees[0].child.eval(
                 state, threadnum, input, stack, (GPIndividual) ind, containerAllocationProblem);
@@ -630,7 +787,7 @@ public class MainAllocationProcessVM {
         for(Double[] vm:vmTypeList){
             // add this new VM into the tempList
             tempVMResourceList.add(new Double[]{
-                    vm[0] - (vm[0] * vmCpuOverheadRate),
+                    vm[0] - vm[0] * vmCpuOverheadRate,
                     vm[1] - vmMemOverhead,
                     new Double(containerOS),
                     vm[2]
@@ -697,22 +854,18 @@ public class MainAllocationProcessVM {
         double maxPow = actualUsageList.get(chosenPM)[3];
         double minPow = actualUsageList.get(chosenPM)[2];
         double newUtil = (actualUsageList.get(chosenPM)[5] -  newCpuRemain)/  actualUsageList.get(chosenPM)[5];
-        double powToAdd = (maxPow - minPow) * (2*newUtil - Math.pow(newUtil, 1.4) - 2*privousUtil + Math.pow(privousUtil, 1.4));
-//        if (powToAdd <0){
-//            System.out.println("ni zai zhua zi");
-//        }
-        this.currentEnergyUnitTime  +=  powToAdd;
+        this.currentEnergyUnitTime  += (maxPow - minPow) * (2*newUtil - Math.pow(newUtil, 1.4) - 2*privousUtil + Math.pow(privousUtil, 1.4));
         return true;
     }
     /***
      * Update the power at current timestamp
      */
 
-    private boolean energyUpdate(double currentTime, double previousTime){
-        this.energyConsumption += (this.currentEnergyUnitTime) * Math.abs(currentTime - previousTime) / 1000 / 3600;
-//        if (this.energyConsumption < 0){
-////            System.out.println("now is less than one");
-//        }
+    private boolean energyUpdate(double curerntTime, double previousTime){
+        this.energyConsumption += (this.currentEnergyUnitTime) * (curerntTime - previousTime) / 1000 / 3600;
+        if (this.energyConsumption < 0){
+            System.out.println("now is less than one");
+        }
 //        System.out.println("After updating the energy cost and now is (VM): " + this.energyConsumption);
         return true;
 

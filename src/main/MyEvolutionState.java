@@ -5,9 +5,8 @@ import ec.simple.SimpleEvolutionState;
 import java.util.ArrayList;
 
 public class MyEvolutionState extends SimpleEvolutionState{
-//    public double PMCPU;
-//    public double PMMEM;
-    public double PMENERGY;
+    public double PMCPU;
+    public double PMMEM;
 
     // A list of containers
     private ArrayList<ArrayList<Double[]>> inputX = new ArrayList<>();
@@ -36,7 +35,7 @@ public class MyEvolutionState extends SimpleEvolutionState{
     public double containerMem;
     public int containerOs;
     public double containerOsPro;
-
+    public double coreNumber;
 
     public double normalizedContainerCpu;
     public double normalizedContainerMem;
@@ -65,6 +64,10 @@ public class MyEvolutionState extends SimpleEvolutionState{
     public double normalizedVmActualMemUsed;
 
     public double arrivalTime;
+    public double meanCPU;
+    public double meanMem;
+    public double cpuPredicted;
+    public double memPredicted;
 
     public MyEvolutionState(){
 

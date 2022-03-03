@@ -22,9 +22,11 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
     boolean shouldSetContext;
     MainAllocationProcessContainer mainAllocationProcessContainer;
     MainAllocationProcessVM mainAllocationProcessVM;
-
-    ArrayList<Double> benchmarkResult;
+    MainAllocationProcessContainer_Ind mainAllocationProcessContainer_Ind;
+    MainAllocationProcessContainer_LAH mainAllocationProcessContainer_lah;
+    ArrayList<Double> benchmarkResult ;
     SubJustFit_FF benchmark;
+
     // Initialization data
     ArrayList <ArrayList> initPm;
     ArrayList <ArrayList> initPmType;
@@ -52,12 +54,9 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
                     base.push(P_DATA), null);
         }
 
-//        Parameter pmCPUP = new Parameter("PMCPU");
-//        Parameter pmMemP = new Parameter("PMMEM");
-        Parameter pmEnergyP = new Parameter("PMENERGY");
         Parameter vmCPUOverheadRateP = new Parameter("VMCPUOverheadRate");
         Parameter vmMemOverheadP = new Parameter("VMMemOverhead");
-        Parameter kP = new Parameter("k");
+//        Parameter kP = new Parameter("k");
         Parameter readFileStartFromP = new Parameter("readFileStartFrom");
         Parameter readFileEndP = new Parameter("readFileEnd");
         Parameter testCasePathP = new Parameter("testCasePath");
@@ -68,14 +67,10 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
         Parameter osProP = new Parameter("osProPath");
         Parameter envPath = new Parameter("initEnvPath");
 
-
-//        double PMCPU = state.parameters.getDouble(pmCPUP, null);
-//        double PMMEM = state.parameters.getDouble(pmMemP, null);
-        double PMENERGY = state.parameters.getDouble(pmEnergyP, null);
         double vmCpuOverheadRate = state.parameters.getDouble(vmCPUOverheadRateP, null);
         double vmMemOverhead = state.parameters.getDouble(vmMemOverheadP, null);
 
-        double k = state.parameters.getDouble(kP, null);
+//        double k = state.parameters.getDouble(kP, null);
         int start = state.parameters.getInt(readFileStartFromP, null);
         int end = state.parameters.getInt(readFileEndP, null);
 
@@ -94,28 +89,40 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
         readOSPro(osProPath);
 
 
+//
+//        mainAllocationProcessContainer =
+//                new MainAllocationProcessContainer(
+//                  this,
+//                                        state,
+//                                        vmCpuOverheadRate,
+//                                        vmMemOverhead
+//                                        );
 
-        mainAllocationProcessContainer =
-                new MainAllocationProcessContainer(
+        mainAllocationProcessContainer_Ind =
+                new MainAllocationProcessContainer_Ind(
                         this,
-                                        state,
-                                        PMENERGY,
-                                        vmCpuOverheadRate,
-                                        vmMemOverhead,
-                                        k);
+                        state,
+                        vmCpuOverheadRate,
+                        vmMemOverhead
+                        );
+
+//        mainAllocationProcessContainer_lah =
+//                new MainAllocationProcessContainer_LAH(
+//                        this,
+//                        state,
+//                        vmCpuOverheadRate,
+//                        vmMemOverhead
+//                );
 
         mainAllocationProcessVM=
                 new MainAllocationProcessVM(
                         this,
                         state,
-                        PMENERGY,
                         vmCpuOverheadRate,
-                        vmMemOverhead,
-                        k);
+                        vmMemOverhead
+                        );
 
         benchmark = new SubJustFit_FF(
-                PMENERGY,
-                k,
                 vmCpuOverheadRate,
                 vmMemOverhead,
                 inputX,
@@ -127,6 +134,7 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
                 pmTypeList,
                 vmTypeList
                 );
+
         benchmarkResult = new ArrayList<>();
         for(int i = 0; i < inputX.size(); i++){
             benchmarkResult.add(benchmark.allocate(i));
@@ -139,6 +147,7 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
         ReadConfigures readEnvConfig = new ReadConfigures();
         initPm = readEnvConfig.testCases(initEnvPath, "pm", start, end);
         initOs = readEnvConfig.testCases(initEnvPath, "os", start, end);
+//        ArrayList<ArrayList> temp= readEnvConfig.testCases(initEnvPath, "container", start, end);
         initContainer = readEnvConfig.testCases(initEnvPath, "container", start, end);
         initVm = readEnvConfig.testCases(initEnvPath, "vm", start, end);
         initPmType = readEnvConfig.testCases(initEnvPath, "pmType", start, end);
@@ -151,16 +160,18 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
         try {
             Reader reader = Files.newBufferedReader(Paths.get(path));
             Reader readerOS = Files.newBufferedReader(Paths.get(osPath));
+
             CSVReader csvReader = new CSVReader(reader);
             CSVReader csvReaderOS = new CSVReader(readerOS);
             String[] nextRecord;
             String[] nextRecordOS;
             while((nextRecord = csvReader.readNext()) != null && (nextRecordOS = csvReaderOS.readNext()) != null){
-                // [0] is for cpu, [1] is for mem
-                Double[] container = new Double[3];
+                // [0] is for cpu, [1] is for mem [2] for os [3] for hours
+                Double[] container = new Double[4];
                 container[0] = Double.parseDouble(nextRecord[0]);
                 container[1] = Double.parseDouble(nextRecord[1]);
                 container[2] = Double.parseDouble(nextRecordOS[0]);
+                container[3] = Double.parseDouble(nextRecord[2]);
                 data.add(container);
             }
             reader.close();
@@ -194,24 +205,33 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
             CSVReader csvReader = new CSVReader(reader);
             String[] nextRecord;
             while((nextRecord = csvReader.readNext()) != null){
-                Double[] vm = new Double[2];
-                vm[0] = Double.parseDouble(nextRecord[0]);
-                vm[1] = Double.parseDouble(nextRecord[1]);
+                Double[] vm = new Double[3];
+                vm[0] = Double.parseDouble(nextRecord[0]); // cpu Mhz
+                vm[1] = Double.parseDouble(nextRecord[1]); //mems
+                vm[2] = Double.parseDouble(nextRecord[2]); // num of core
                 vmTypeList.add(vm);
             }
         } catch (IOException e1){
             e1.printStackTrace();
         }
     }
+
     private void readPMConfig(String pmConfigPath){
         try {
             Reader reader = Files.newBufferedReader(Paths.get(pmConfigPath));
             CSVReader csvReader = new CSVReader(reader);
             String[] nextRecord;
             while((nextRecord = csvReader.readNext()) != null){
-                Double[] pm = new Double[2];
-                pm[0] = Double.parseDouble(nextRecord[0]);
-                pm[1] = Double.parseDouble(nextRecord[1]);
+                Double[] pm = new Double[5];
+                pm[0] = Double.parseDouble(nextRecord[0]);// cpu
+                pm[1] = Double.parseDouble(nextRecord[1]);// mem
+                pm[2] = Double.parseDouble(nextRecord[2]);// idle
+                pm[3] = Double.parseDouble(nextRecord[3]);// max
+                pm[4] = Double.parseDouble(nextRecord[4]);// core num
+//                pm[5] = Double.parseDouble(nextRecord[5]); // the type of the pm
+                // type will only be used for pm creation
+                // due to the creation may not have the full list of the pm types
+                // need to this feature to choose the desirable pms
                 pmTypeList.add(pm);
             }
         } catch (IOException e1){
@@ -221,12 +241,20 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
 
     // we read containers from file
     private void readFromFiles(String testCasePath, String osPath, int start, int end){
+//        end = 1;
+//
         for(int i = start; i <= end; ++i){
+//            int toRead = i;
+//            if(toRead > 50){
+//                toRead = i -50;
+//            }
             String path = testCasePath + i + ".csv";
             String pathOS = osPath + i + ".csv";
             inputX.add(readFromFile(path, pathOS));
         }
     }
+
+
 
     @Override
     public void preprocessPopulation(EvolutionState state,
@@ -255,7 +283,6 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
                     KozaFitness fit = (KozaFitness)(pop.subpops.get(i).individuals.get(j).fitness);
                     Double fitnessValue = ((Double) fit.trials.get(0)).doubleValue();
                     fit.setStandardizedFitness(state, fitnessValue);
-
                     pop.subpops.get(i).individuals.get(j).evaluated = true;
                 }
             }
@@ -291,8 +318,23 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
         KozaFitness fit2 = (KozaFitness) ind[1].fitness;
 
         if(updateFitness[0]){
+//
+//            ArrayList<Double> resultList = mainAllocationProcessContainer.evaluate(
+//                    (DoubleData)this.input,
+//                    state,
+//                    inputX,
+//                    initVm,
+//                    initContainer,
+//                    initOs,
+//                    initPm,
+//                    initPmType,
+//                    pmTypeList,
+//                    vmTypeList,
+//                    containerAllocationRule,
+//                    vmAllocationRule,
+//                    threadnum, this.stack);
 
-            ArrayList<Double> resultList = mainAllocationProcessContainer.evaluate(
+            ArrayList<Double> resultList = mainAllocationProcessContainer_Ind.evaluate(
                     (DoubleData)this.input,
                     state,
                     inputX,
@@ -307,13 +349,28 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
                     vmAllocationRule,
                     threadnum, this.stack);
 
+//            ArrayList<Double> resultList = mainAllocationProcessContainer_lah.evaluate(
+//                    (DoubleData)this.input,
+//                    state,
+//                    inputX,
+//                    initVm,
+//                    initContainer,
+//                    initOs,
+//                    initPm,
+//                    initPmType,
+//                    pmTypeList,
+//                    vmTypeList,
+//                    containerAllocationRule,
+//                    vmAllocationRule,
+//                    threadnum, this.stack);
+
             double aveFit = 0;
             for(int i = 0; i < resultList.size(); ++i){
                 aveFit += resultList.get(i);
             }
 
             // Now we normalize the fitness value
-            aveFit /= benchmarkResult.get(state.generation);
+//            aveFit /= benchmarkResult.get(state.generation);
             aveFit /= resultList.size();
 
             fit1.trials.add(aveFit);
@@ -343,15 +400,24 @@ public class ContainerAllocationProblem extends GPProblem implements GroupedProb
             }
 
             // normalize the fitness value
-            aveFit /= benchmarkResult.get(state.generation);
+//            aveFit /= benchmarkResult.get(state.generation);
             aveFit /= resultList.size();
 
             fit2.trials.add(aveFit);
             fit2.setStandardizedFitness(state, aveFit);
 //            fit1.setFitness(state, fit1.fitness(), false);
+//            System.out.println("Currently we having "+
+//                    state.population.subpops.get(0).individuals.size() + " trees ");
+//            for(Individual i : state.population.subpops.get(0).individuals) {
+//
+//            MYGPIndividual myind = (MYGPIndividual) i;
+//            ((MYGPIndividual) i).printTrees(state, 1);
+//
+//        }
         }
-
     }
+
+
 
 
     @Override

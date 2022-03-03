@@ -2,7 +2,9 @@ package main;
 
 import ec.EvolutionState;
 import functions.VMMEMOverhead;
+import org.bytedeco.javacpp.presets.opencv_core;
 
+import java.sql.SQLOutput;
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -14,16 +16,9 @@ import java.util.HashMap;
  */
 public class SubJustFit_FF {
     private final ArrayList<ArrayList> initPmType;
-    private double pmCpu;
-    private double pmMem;
-    private double pmMaxEnergy;
-    private double k;
 
     private double vmCpuOverheadRate;
     private double vmMemOverhead;
-
-
-
     private ArrayList<ArrayList> initVm;
     private ArrayList<ArrayList> initPm;
     private ArrayList<ArrayList> initOs;
@@ -31,14 +26,16 @@ public class SubJustFit_FF {
     private ArrayList<Double[]> vmTypeList;
     private ArrayList<Double[]> pmTypeList;
 
+    private ArrayList<Double> maxCPUs = new ArrayList<>();
 
-
+    public double currentHour = 0.0;
+    public double currentTimestamp;
+    public double currentPower;
+    public double currentEnergyConsumption;
+    public boolean firstContainer = false;
     private ArrayList<ArrayList<Double[]>> inputX;
 
     public SubJustFit_FF(
-
-            double pmMaxEnergy,
-            double k,
             double vmCpuOverheadRate,
             double vmMemOverhead,
             ArrayList<ArrayList<Double[]>> inputX,
@@ -49,10 +46,8 @@ public class SubJustFit_FF {
             ArrayList<ArrayList> initPmType,
             ArrayList<Double[]> pmTypeList,
             ArrayList<Double[]> vmTypeList
-    ){
+    ) {
         this.pmTypeList = pmTypeList;
-        this.pmMaxEnergy = pmMaxEnergy;
-        this.k = k;
         this.vmCpuOverheadRate = vmCpuOverheadRate;
         this.vmMemOverhead = vmMemOverhead;
         this.initVm = initVm;
@@ -62,17 +57,20 @@ public class SubJustFit_FF {
         this.inputX = inputX;
         this.vmTypeList = vmTypeList;
         this.initPmType = initPmType;
+//    =====================================
+        this.currentEnergyConsumption = 0.0;
+        this.currentPower = 0.0;
+        this.firstContainer = true;
     }
-
 
 
     public double allocate(
             int testCase
-    ){
-        // testCaseNum equals the current generation
+    ) {
+        this.maxCPUs = new ArrayList<>();
+        this.currentEnergyConsumption = 0.0;
+        this.currentPower =0.0;
         ArrayList<Double[]> containers = inputX.get(testCase);
-        double ae = 0;
-
         // pmList, the real utilization of PM
         ArrayList<Double[]> pmList = new ArrayList<>();
 
@@ -82,198 +80,88 @@ public class SubJustFit_FF {
         ArrayList<Double[]> vmList = new ArrayList<>();
         HashMap<Integer, Integer> VMPMMapping = new HashMap<>();
         HashMap<Integer, Integer> vmIndexTypeMapping = new HashMap<>();
-
-        // Initialize data center
-        initializeDataCenter(
+        //using a universal initializer
+        initializationDataCenterForAll initializing = new initializationDataCenterForAll(
                 testCase,
+                pmStatusList,
+                pmList,
+                vmList,
+                vmTypeList,
+                pmTypeList,
                 initPm,
                 initVm,
                 initContainer,
                 initOs,
                 initPmType,
-                pmList,
-                pmStatusList,
-                vmList,
                 VMPMMapping,
-                vmIndexTypeMapping
-                );
-//        Double Energy = energyCalculation(pmActualUsageList);
-        ArrayList<Double> accumulateEnergy = new ArrayList<>();
-        double energy = calEnergy(pmList);
+                vmIndexTypeMapping);
+        this.currentPower = initializing.getUnitPower();
+        vmList = (ArrayList<Double[]>) initializing.getVmResourceList().clone();
+        pmStatusList = (ArrayList<Double[]>) initializing.getPmResourceLsit().clone();
+        pmList = (ArrayList<Double[]>) initializing.getPmActualUsageList().clone();
+        vmIndexTypeMapping = (HashMap<Integer, Integer>) initializing.getVmIndexTypeMapping().clone();
+        VMPMMapping = (HashMap<Integer, Integer>) initializing.getVMPMMapping().clone();
+        this.maxCPUs = (ArrayList<Double>) initializing.getMaxCPUs().clone();
+        vmList.clear();
+        pmStatusList.clear();
+        pmList.clear();
+        vmIndexTypeMapping.clear();
+        VMPMMapping.clear();
+        this.currentPower = 0.0;
+        this.maxCPUs.clear();
+//        System.out.println("After initialization in heuristics process the power is " + this.currentPower);
 
-        for(Double[] container:containers){
-
+        this.firstContainer = true;
+        for (Double[] container : containers) {
+            if (this.firstContainer) {
+                this.currentTimestamp = container[3];
+                this.firstContainer = false;
+            }
             double containerCpu = container[0];
             double containerMem = container[1];
             int containerOs = container[2].intValue();
-
-            if(!bestFit(container, pmList, vmList, VMPMMapping)){
+            double timestamp = container[3];
+            if (timestamp != this.currentTimestamp) {
+                updateEnergyConsumption(Math.abs(timestamp - this.currentTimestamp));
+                this.currentTimestamp = timestamp; // update the current timestamp
+            }
+            if (!bestFit(container, pmList, vmList, VMPMMapping)) {
                 int newVmIndex = justFit(container);
-                Double[] newVM = new Double[]{vmTypeList.get(newVmIndex)[0], vmTypeList.get(newVmIndex)[1], container[2]};
-                newVM[0] -= (container[0] + newVM[0] * vmCpuOverheadRate);
-                newVM[1] -= (container[1] + vmMemOverhead);
+                // vm cpu, mem, os, core
+                Double[] newVM = new Double[]{vmTypeList.get(newVmIndex)[0], vmTypeList.get(newVmIndex)[1], container[2], vmTypeList.get(newVmIndex)[2]};
+                newVM[0] -= (containerCpu + newVM[0] * vmCpuOverheadRate); // deal the overhead for vm
+                newVM[1] -= (containerMem + vmMemOverhead);
                 vmList.add(newVM);
                 vmIndexTypeMapping.put(vmList.size() - 1, newVmIndex);
 //                System.out.println(vmList.size());
-                if(!firstFit(newVmIndex, container, pmList, pmStatusList, vmList, VMPMMapping)){
-                    Double[] newPM = pmCreation(pmTypeList,vmTypeList.get(newVmIndex)[0] * vmCpuOverheadRate + container[0],vmMemOverhead + container[1]);
-//                    Double[] newPM = new Double[]{pmCpu, pmMem};
-                    double type = newPM[2];
-
-                    Double[] newPmStatus = new Double[]{pmCpu, pmMem,type};
-
-                    newPM[0] -= (vmTypeList.get(newVmIndex)[0] * vmCpuOverheadRate + container[0]);
+                if (!firstFit(newVmIndex, container, pmList, pmStatusList, vmList, VMPMMapping)) {
+                    Double[] newPM = pmCreation(pmTypeList, vmTypeList.get(newVmIndex)[0], vmTypeList.get(newVmIndex)[1], vmTypeList.get(newVmIndex)[2]);
+                    double maxCPU = newPM[0];
+                    Double[] newPmStatus = newPM.clone();
+                    newPM[0] -= (vmTypeList.get(newVmIndex)[0] * vmCpuOverheadRate );
+                    newPM[0] -= containerCpu;
                     newPM[1] -= (vmMemOverhead + container[1]);
                     newPmStatus[0] -= vmTypeList.get(newVmIndex)[0];
                     newPmStatus[1] -= vmTypeList.get(newVmIndex)[1];
                     pmList.add(newPM);
+                    this.maxCPUs.add(maxCPU);
                     pmStatusList.add(newPmStatus);
+
 //                    vmPmIndexMapping.add(new Integer[]{vmList.size() - 1, pmList.size() - 1});
                     VMPMMapping.put(vmList.size() - 1, pmList.size() - 1);
 //                    System.out.println(vmList.size() + " : " + pmList.size());
+                    // Here we update the unit time power
+                    updateCurrentPower(newPM, 0, maxCPU); //here we create a new pm
+                    this.currentPower += newPM[2]; // add the idle power for the newly created pm
                 }
             }
-            accumulateEnergy.add(calEnergy(pmList));
-//            double increment = calEnergy(pmList);
-//            energy += increment;
         }
-        double energyAll = 0;
-        for(int i = 0; i < accumulateEnergy.size(); i++){
-            energyAll += accumulateEnergy.get(i);
-        }
-//        averageEnergy /= containers.size();
-//        double energy = 0;
-
-
-
-        return energyAll;
+        System.out.println("The final power unit time of heuristic is : " + this.currentPower);
+        System.out.println("The power consumption is : " + this.currentEnergyConsumption);
+        return this.currentEnergyConsumption;
     }
 
 
-    private void initializeDataCenter(
-            int testCase,
-            ArrayList<ArrayList> initPm,
-            ArrayList<ArrayList> initVm,
-            ArrayList<ArrayList> initContainer,
-            ArrayList<ArrayList> initOs,
-            ArrayList<ArrayList> initPmType,
-            ArrayList<Double[]> pmList,
-            ArrayList<Double[]> pmStatusList,
-            ArrayList<Double[]> vmList,
-            HashMap<Integer, Integer> VMPMMapping,
-            HashMap<Integer, Integer> vmIndexTypeMapping
-            ){
-
-        ArrayList<Double[]> initPmList = initPm.get(testCase);
-        ArrayList<Double[]> initVmList = initVm.get(testCase);
-        ArrayList<Double[]> containerList = initContainer.get(testCase);
-        ArrayList<Double[]> osList = initOs.get(testCase);
-        ArrayList<Double[]> initPmTypeList = initPmType.get(testCase);
-
-
-        int globalVmCounter = 0;
-        // for each PM, we have an array of VM: vms[]
-        for(int i =0; i < initPmTypeList.size(); ++i) {
-            int typePM = (initPmTypeList.get(i)[0]).intValue();
-            Double[] vms = initPmList.get(i);
-            double pmCPU = pmTypeList.get(typePM)[0];
-            double pmMem = pmTypeList.get(typePM)[1];
-            pmStatusList.add(new Double[]{pmCPU,pmMem,(Double)(typePM*1.0)});
-            pmList.add(new Double[]{pmCPU,pmMem,(Double)(typePM*1.0)});
-
-
-            // for this each VM
-            for (int vmCounter = 0; vmCounter <vms.length; ++vmCounter ){
-                // Get the type of this VM
-                int vmType = vms[vmCounter].intValue() ;
-
-                // Get the OS type
-                Double[] os = osList.get(vmCounter + globalVmCounter);
-
-                // Create this VM
-                vmList.add(new Double[]{
-                        vmTypeList.get(vmType)[0] - vmTypeList.get(vmType)[0] * vmCpuOverheadRate,
-                        vmTypeList.get(vmType)[1] - vmMemOverhead,
-                        new Double(os[0])
-                });
-
-
-                // get the containers allocated on this VM
-                Double[] containers = initVmList.get(vmCounter + globalVmCounter);
-
-                // Allocate the VM to this PM,
-                // Allocation includes two part, first, pmResourceList indicates the left resource of PM (subtract entire VMs' size)
-                // pmIndex denotes the last PM. pmIndex should be at least 0.
-                int pmIndex = pmStatusList.size() - 1;
-
-                // update the pm left resources
-//                double typePM = pmStatusList.get(i)[2];
-                pmStatusList.set(pmIndex, new Double[]{
-                        pmStatusList.get(pmIndex)[0] - vmTypeList.get(vmType)[0],
-                        pmStatusList.get(pmIndex)[1] - vmTypeList.get(vmType)[1],
-                        typePM*1.0
-                });
-
-
-                // The second part of allocation,
-                // We update the actual usage of PM's resources
-                pmList.set(pmIndex, new Double[]{
-                        pmList.get(pmIndex)[0] - vmTypeList.get(vmType)[0] * vmCpuOverheadRate,
-                        pmList.get(pmIndex)[1] - vmMemOverhead,
-                        typePM*1.0
-
-                });
-
-                // Map the VM to the PM
-                VMPMMapping.put(vmCounter + globalVmCounter, pmIndex);
-                // for each container
-                for(int conContainer = containers[0].intValue() ;
-                    conContainer < containers[containers.length - 1].intValue();
-                    ++conContainer){
-
-                    // Get the container's cpu and memory
-                    Double[] cpuMem = containerList.get(conContainer);
-
-                    //Create this container
-                    // get the left resources of this VM
-                    int vmIndex = vmList.size() - 1;
-                    Double[] vmCpuMem = vmList.get(vmIndex);
-
-                    // update the vm
-                    vmList.set(vmIndex, new Double[] {
-                            vmCpuMem[0] - cpuMem[0],
-                            vmCpuMem[1] - cpuMem[1],
-                            new Double(os[0])
-                    });
-
-                    // Whenever we create a new VM, map its index in the VMResourceList to its type for future purpose
-//                    vmIndexTypeMapping.put(vmResourceList.size() - 1, vmType);
-                    vmIndexTypeMapping.put(vmList.size() - 1, vmType);
-
-                    // Add the Actual usage to the PM
-                    // Here, we must consider the overhead
-                    Double[] pmCpuMem = pmList.get(pmIndex);
-
-                    // update the pm
-                    pmList.set(pmIndex, new Double[]{
-                            pmCpuMem[0] - cpuMem[0],
-                            pmCpuMem[1] - cpuMem[1],
-                            typePM*1.0
-
-                    });
-
-
-//                    vm.addContainer(container);
-                } // Finish allocate containers to VMs
-            } // End  of each VM
-            // we must update the globalVmCounter
-            globalVmCounter += vms.length;
-
-        } // End of each PM
-
-
-//        double energy = energyCalculation(pmActualUsageList);
-    }
 
     private boolean firstFit(
             int vmIndex,
@@ -281,20 +169,30 @@ public class SubJustFit_FF {
             ArrayList<Double[]> pmList,
             ArrayList<Double[]> pmStatusList,
             ArrayList<Double[]> vmList,
-            HashMap<Integer, Integer> VMPMMapping){
+            HashMap<Integer, Integer> VMPMMapping) {
         boolean allocated = false;
-        for(int i = 0; i < pmList.size(); i++){
+        for (int i = 0; i < pmList.size(); i++) {
             Double[] pm = pmList.get(i);
             Double[] pmStatus = pmStatusList.get(i);
-            if(pmStatus[0] >= vmTypeList.get(vmIndex)[0] &&
-                    pmStatus[1] >= vmTypeList.get(vmIndex)[1]){
+            double maxCPU = this.maxCPUs.get(i);
+            double prevUtil = (maxCPU - pm[0]) / maxCPU;
+            if (pmStatus[0] >= vmTypeList.get(vmIndex)[0] && // check cpu
+                    pmStatus[1] >= vmTypeList.get(vmIndex)[1] && // check mem
+                    pmStatus[4] >= vmTypeList.get(vmIndex)[2] && // check core
+                    pm[0] >= (vmTypeList.get(vmIndex)[0] * vmCpuOverheadRate + container[0]) && // check container + overhead
+                    pm[1] >= (vmMemOverhead + container[1]) // check containerMem + overhead mem, due to some container maybe super big
+            ) {
                 allocated = true;
-                pm[0] -= vmTypeList.get(vmIndex)[0] * vmCpuOverheadRate + container[0];
-                pm[1] -= vmMemOverhead + container[1];
-                pmStatus[0] -= vmTypeList.get(vmIndex)[0];
+                pm[0] -= (vmTypeList.get(vmIndex)[0] * vmCpuOverheadRate + container[0]);
+                pm[1] -= (vmMemOverhead + container[1]);
+                if(pm[0] < 0 ){
+                    System.out.println("pm exceed limitation in firstFit");
+                }
+                pmStatus[0] -= vmTypeList.get(vmIndex)[0]; //update the bounds for pm
                 pmStatus[1] -= vmTypeList.get(vmIndex)[1];
                 VMPMMapping.put(vmList.size() - 1, i);
-//                System.out.println(vmList.size()-1 + " : " + i);
+                updateCurrentPower(pm, prevUtil, maxCPU);
+
                 break;
             }
         }
@@ -302,14 +200,14 @@ public class SubJustFit_FF {
     }
 
     // select the smallest (memory) VM type
-    private int justFit(Double[] container){
+    private int justFit(Double[] container) {
         int selectIndex = 0;
         int vmCounter = 0;
-        double bestValue = pmMem;
-        for(Double[] vmType:vmTypeList){
-            if(vmType[0] >= container[0] + vmType[0] * vmCpuOverheadRate && vmType[1] >= container[1] + vmMemOverhead){
-                double leftMem = vmType[1] - container[1];
-                if(leftMem < bestValue) {
+        double bestValue = Double.MAX_VALUE;
+        for (Double[] vmType : vmTypeList) {
+            if ((vmType[0]*(1-vmCpuOverheadRate))>=container[0] && (vmType[1] >=(container[1]+vmMemOverhead))){
+                double leftMem = vmType[1] - container[1] - vmMemOverhead;
+                if (leftMem < bestValue) {
                     selectIndex = vmCounter;
                     bestValue = leftMem;
                 }
@@ -323,13 +221,13 @@ public class SubJustFit_FF {
             Double[] container,
             ArrayList<Double[]> pmList,
             ArrayList<Double[]> vmList,
-            HashMap<Integer, Integer> VMPMMapping){
+            HashMap<Integer, Integer> VMPMMapping) {
 
         boolean allocated = false;
         int vmCounter = 0;
         int bestVmIndex = 0;
-        double bestValue = 50000;
-        for(Double[] vm:vmList){
+        double bestValue = Double.MAX_VALUE;
+        for (Double[] vm : vmList) {
             double vmCpu = vm[0];
             double vmMem = vm[1];
             int vmOs = vm[2].intValue();
@@ -338,12 +236,12 @@ public class SubJustFit_FF {
             double containerMem = container[1];
             int containerOs = container[2].intValue();
 
-            if(vmCpu >= containerCpu && vmMem >= containerMem && vmOs == containerOs){
+            if (vmCpu >= containerCpu && vmMem >= containerMem && vmOs == containerOs) {
                 allocated = true;
                 double cpuLeft = vm[0] - container[0];
                 double memLeft = vm[1] - container[1];
                 double subValue = Math.abs(cpuLeft - memLeft);
-                if(subValue < bestValue){
+                if (subValue < bestValue) {
                     bestValue = subValue;
                     bestVmIndex = vmCounter;
                 }
@@ -351,73 +249,85 @@ public class SubJustFit_FF {
             vmCounter++;
         }
 
-        if(allocated){
+        if (allocated) {
             Double[] vm = vmList.get(bestVmIndex);
             vm[0] -= container[0];
             vm[1] -= container[1];
 
-//            for(Integer[] vmPmIndex:vmPmIndexMapping){
-//                if(vmPmIndex[0] == bestVmIndex){
-//                    Double[] pm = pmList.get(vmPmIndex[1]);
-//                    pm[0] -= container[0];
-//                    pm[1] -= container[1];
-//                }
-//            }
-//            System.out.println("bestVmIndex: " + bestVmIndex);
             int pmIndex = VMPMMapping.get(bestVmIndex);
             Double[] pm = pmList.get(pmIndex);
+            double maxCPU = this.maxCPUs.get(pmIndex);
+            double prevUtil = (maxCPU - pm[0]) / maxCPU;
             pm[0] -= container[0];
             pm[1] -= container[1];
+            if(pm[0] < 0 ){
+                System.out.println(" Warning PM exceed limitation");
+            }
+            updateCurrentPower(pm, prevUtil, maxCPU);
         }
         return allocated;
     }
-    // For PM creation createpm
-    private Double[] pmCreation(ArrayList<Double[]> pmTypeList, double vmCpu, double vmMem) {
+
+    // For PM creation create pm
+    private Double[] pmCreation(ArrayList<Double[]> pmTypeList, double vmCpu, double vmMem, double vmCore) {
         int chosedType = -1;
         double bestFitValue = 0;
-        double bestcurrentUtil_CPU =0;
+        double bestcurrentUtil_CPU = 0;
         double bestcurrentUtil_Mem = 0;
         double requireCPU = vmCpu;
         double requireMem = vmMem;
-
         for (int i = 0; i < pmTypeList.size(); i++) {
-            if(requireCPU < pmTypeList.get(i)[0] && requireMem < pmTypeList.get(i)[1]) {
-                double currentUtil_CPU = (pmTypeList.get(i)[0] -requireCPU ) / pmTypeList.get(i)[0];
-                double currentUtil_Mem = (pmTypeList.get(i)[1] - requireMem) / pmTypeList.get(i)[1];
-                double fitValue =  bestcurrentUtil_CPU * bestcurrentUtil_Mem;
+            if (requireCPU <= pmTypeList.get(i)[0] &&
+                    requireMem <= pmTypeList.get(i)[1] &&
+                    vmCore <= pmTypeList.get(i)[4] ) {
+                double currentUtil_CPU = (requireCPU) / pmTypeList.get(i)[0]; // used / maxCPU
                 if (bestcurrentUtil_CPU < currentUtil_CPU) {
                     chosedType = i;
                     bestcurrentUtil_CPU = currentUtil_CPU;
-//                    bestcurrentUtil_Mem = currentUtil_Mem;
-//                    bestFitValue = fitValue;
                 }
-//                else if (fitValue > bestFitValue){// do not have both requirements better than others but together is better
-//                    bestcurrentUtil_Mem  = currentUtil_Mem;
-//                    bestcurrentUtil_CPU = currentUtil_CPU;
-//                    bestFitValue = fitValue;
-//                    chosedType = i;
-//                }
-                else{//the current type is worse
+                else {//the current type is worse
                     continue;
                 }
             }
 
         }
-        if (chosedType <0 || chosedType>pmTypeList.size()) chosedType =0;
-        Double newPM[] = new Double[]{pmTypeList.get(chosedType)[0], pmTypeList.get(chosedType)[1], chosedType*1.0};
+//       // The pm type holding cpu, mem, idle, max, core num
+        Double newPM[] = new Double[]{pmTypeList.get(chosedType)[0], pmTypeList.get(chosedType)[1], pmTypeList.get(chosedType)[2],
+                pmTypeList.get(chosedType)[3], pmTypeList.get(chosedType)[4]};
         return newPM;
     }
 
+    /***
+     * Update the current energy consumption
+     * @param  timeDif (difference between the new timestamp and the previous one)
+     */
 
-    private double calEnergy(ArrayList<Double[]> pmList){
-        double energy = 0;
+    public void updateEnergyConsumption(double timeDif) {
+        this.currentEnergyConsumption += timeDif / 1000 / 3600 * this.currentPower;
+    }
 
-        for(Double[] pm:pmList){
-            double pmCPU = pmTypeList.get(pm[2].intValue())[0];
-            System.out.println(pmCPU);
-            energy += k * pmMaxEnergy *pmCPU + (1 - k) * pm[0] / pmCPU ;
-            System.out.println(energy);
+    public void updateCurrentPower(Double[] updatedPM, double prevUtil, double maxCPU) {
+//        this.currentPower += updatedPM[2];
+        double currentUtil = (maxCPU - updatedPM[0]) / maxCPU;
+        double powToAdd = 0.0;
+        if (currentUtil < 0 || currentUtil > 1) {
+            if (currentUtil < 0) {
+                System.out.println("The current util is below zero");
+            }
+            System.out.println("util greater than one");
         }
-        return energy;
+            if (prevUtil > currentUtil) {
+                System.out.println("current util is less than before");
+            }
+            if (prevUtil == 0) {
+                this.currentPower += (updatedPM[3] - updatedPM[2]) * (2 * currentUtil - Math.pow(currentUtil, 1.4));
+            } else {
+
+                powToAdd = (updatedPM[3] - updatedPM[2]) * (2 * currentUtil - Math.pow(currentUtil, 1.4) -
+                        (2 * prevUtil - Math.pow(prevUtil, 1.4)));
+            }
+//            if (powToAdd < 0) System.out.println("Pow Decrease ? subjustFF");
+            this.currentPower += powToAdd;
+
     }
 }
